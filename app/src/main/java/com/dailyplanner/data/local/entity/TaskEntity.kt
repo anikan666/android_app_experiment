@@ -12,6 +12,7 @@ data class TaskEntity(
     val dueDate: Long?,
     val poc: String?,
     val originalEmailId: String?,
+    val priority: String = "LOW",
     val isScheduled: Boolean = false,
     val scheduledStartTime: Long? = null,
     val scheduledEndTime: Long? = null

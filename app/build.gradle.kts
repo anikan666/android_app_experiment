@@ -21,6 +21,15 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        // Read API Key from local.properties
+        val localProperties = java.util.Properties()
+        val localPropertiesFile = rootProject.file("local.properties")
+        if (localPropertiesFile.exists()) {
+            localProperties.load(java.io.FileInputStream(localPropertiesFile))
+        }
+        val apiKey = localProperties.getProperty("GEMINI_API_KEY") ?: ""
+        buildConfigField("String", "GEMINI_API_KEY", "\"$apiKey\"")
     }
 
     buildTypes {
@@ -41,6 +50,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true // Enable BuildConfig generation
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.8"
