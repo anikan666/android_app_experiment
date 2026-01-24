@@ -61,6 +61,10 @@ google-api-services-calendar = { group = "com.google.apis", name = "google-api-s
 # AI
 google-ai-client-generativeai = { group = "com.google.ai.client.generativeai", name = "generativeai", version.ref = "generativeAi" }
 
+# Testing
+mockk = { group = "io.mockk", name = "mockk", version = "1.13.9" }
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version = "1.7.1" }
+
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 android-library = { id = "com.android.library", version.ref = "agp" }

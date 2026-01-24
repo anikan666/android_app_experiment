@@ -37,11 +37,13 @@ android {
         if (credentialsFile.exists()) {
             try {
                 val jsonContent = credentialsFile.readText()
-                val jsonObject = org.json.JSONObject(jsonContent)
-                val web = jsonObject.getJSONObject("web")
-                clientId = web.getString("client_id")
+                // Use a simple Regex to extract client_id to avoid adding org.json dependency to buildscript
+                val regex = "\"client_id\"\\s*:\\s*\"([^\"]+)\"".toRegex()
+                val matchResult = regex.find(jsonContent)
+                if (matchResult != null) {
+                    clientId = matchResult.groupValues[1]
+                }
             } catch (e: Exception) {
-                // Fallback or ignore if parsing fails (user might not have file or format differs)
                 println("Failed to parse credentials.json: ${e.message}")
             }
         }
@@ -128,6 +130,8 @@ dependencies {
     implementation(libs.google.ai.client.generativeai)
 
     testImplementation(libs.junit)
+    testImplementation(libs.mockk)
+    testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
