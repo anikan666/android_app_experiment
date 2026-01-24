@@ -30,6 +30,22 @@ android {
         }
         val apiKey = localProperties.getProperty("GEMINI_API_KEY") ?: ""
         buildConfigField("String", "GEMINI_API_KEY", "\"$apiKey\"")
+
+        // Read Client ID from credentials.json
+        val credentialsFile = rootProject.file("credentials.json")
+        var clientId = ""
+        if (credentialsFile.exists()) {
+            try {
+                val jsonContent = credentialsFile.readText()
+                val jsonObject = org.json.JSONObject(jsonContent)
+                val web = jsonObject.getJSONObject("web")
+                clientId = web.getString("client_id")
+            } catch (e: Exception) {
+                // Fallback or ignore if parsing fails (user might not have file or format differs)
+                println("Failed to parse credentials.json: ${e.message}")
+            }
+        }
+        buildConfigField("String", "GOOGLE_CLIENT_ID", "\"$clientId\"")
     }
 
     buildTypes {
@@ -48,6 +64,11 @@ android {
     kotlinOptions {
         jvmTarget = "1.8"
     }
+
+    // Add org.json dependency for buildscript to parse JSON? 
+    // Actually, Gradle Kotlin DSL typically has access to standard libs, but org.json might need import or simple regex.
+    // Let's use Regex to be safe and avoid classpath issues.
+
     buildFeatures {
         compose = true
         buildConfig = true // Enable BuildConfig generation
