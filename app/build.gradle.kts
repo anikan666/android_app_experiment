@@ -2,52 +2,21 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-    alias(libs.plugins.hilt)
-    alias(libs.plugins.ksp)
 }
 
 android {
-    namespace = "com.dailyplanner"
+    namespace = "com.zooempire"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.dailyplanner"
+        applicationId = "com.zooempire"
         minSdk = 26
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
-
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
         }
-
-        // Read API Key from local.properties
-        val localProperties = java.util.Properties()
-        val localPropertiesFile = rootProject.file("local.properties")
-        if (localPropertiesFile.exists()) {
-            localProperties.load(java.io.FileInputStream(localPropertiesFile))
-        }
-        val apiKey = localProperties.getProperty("GEMINI_API_KEY") ?: ""
-        buildConfigField("String", "GEMINI_API_KEY", "\"$apiKey\"")
-
-        // Read Client ID from credentials.json
-        val credentialsFile = rootProject.file("credentials.json")
-        var clientId = ""
-        if (credentialsFile.exists()) {
-            try {
-                val jsonContent = credentialsFile.readText()
-                // Use a simple Regex to extract client_id to avoid adding org.json dependency to buildscript
-                val regex = "\"client_id\"\\s*:\\s*\"([^\"]+)\"".toRegex()
-                val matchResult = regex.find(jsonContent)
-                if (matchResult != null) {
-                    clientId = matchResult.groupValues[1]
-                }
-            } catch (e: Exception) {
-                println("Failed to parse credentials.json: ${e.message}")
-            }
-        }
-        buildConfigField("String", "GOOGLE_CLIENT_ID", "\"$clientId\"")
     }
 
     buildTypes {
@@ -66,17 +35,8 @@ android {
     kotlinOptions {
         jvmTarget = "1.8"
     }
-
-    // Add org.json dependency for buildscript to parse JSON? 
-    // Actually, Gradle Kotlin DSL typically has access to standard libs, but org.json might need import or simple regex.
-    // Let's use Regex to be safe and avoid classpath issues.
-
     buildFeatures {
         compose = true
-        buildConfig = true // Enable BuildConfig generation
-    }
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.8"
     }
     packaging {
         resources {
@@ -86,7 +46,6 @@ android {
 }
 
 dependencies {
-
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
@@ -95,47 +54,8 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
-
-    // Hilt
-    implementation(libs.hilt.android)
-    ksp(libs.hilt.compiler)
-    implementation(libs.androidx.hilt.navigation.compose)
-
-    // Room
-    implementation(libs.androidx.room.runtime)
-    implementation(libs.androidx.room.ktx)
-    ksp(libs.androidx.room.compiler)
-
-    // Networking
-    implementation(libs.retrofit)
-    implementation(libs.retrofit.converter.gson)
-    implementation(libs.okhttp)
-    implementation(libs.okhttp.logging)
-
-    // Google Auth & APIs
-    implementation(libs.play.services.auth)
-    implementation(libs.androidx.credentials)
-    implementation(libs.androidx.credentials.play.services)
-    implementation(libs.google.api.client.android) {
-        exclude(group = "org.apache.httpcomponents")
-    }
-    implementation(libs.google.api.services.gmail) {
-        exclude(group = "org.apache.httpcomponents")
-    }
-    implementation(libs.google.api.services.calendar) {
-        exclude(group = "org.apache.httpcomponents")
-    }
-
-    // AI
-    implementation(libs.google.ai.client.generativeai)
-
-    testImplementation(libs.junit)
-    testImplementation(libs.mockk)
-    testImplementation(libs.kotlinx.coroutines.test)
-    androidTestImplementation(libs.androidx.junit)
-    androidTestImplementation(libs.androidx.espresso.core)
-    androidTestImplementation(platform(libs.androidx.compose.bom))
-    androidTestImplementation(libs.androidx.ui.test.junit4)
+    implementation(libs.androidx.navigation.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.lifecycle.runtime.compose)
     debugImplementation(libs.androidx.ui.tooling)
-    debugImplementation(libs.androidx.ui.test.manifest)
 }

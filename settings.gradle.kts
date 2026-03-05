@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Mobile App Daily Planner"
+rootProject.name = "Zoo Empire"
 include(":app")
