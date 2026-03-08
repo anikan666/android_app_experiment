@@ -12,133 +12,112 @@ import kotlin.math.sqrt
 @Singleton
 class ToneClassifier @Inject constructor() {
 
-    companion object {
-        private const val SAMPLE_RATE = 44100
-    }
-
-    private val _toneResults = MutableSharedFlow<ToneResult>(replay = 0, extraBufferCapacity = 5)
+    private val _toneResults = MutableSharedFlow<ToneResult>(extraBufferCapacity = 10)
     val toneResults: Flow<ToneResult> = _toneResults.asSharedFlow()
 
-    private var isNoisyEnvironment = false
+    suspend fun processFrame(audioData: ShortArray, noiseLevel: com.sarangi.core.model.NoiseLevel) {
+        if (noiseLevel == com.sarangi.core.model.NoiseLevel.HIGH) return
 
-    fun setNoisyEnvironment(noisy: Boolean) {
-        isNoisyEnvironment = noisy
-    }
+        val floatData = audioData.map { it.toDouble() / Short.MAX_VALUE }.toDoubleArray()
+        if (floatData.all { it == 0.0 }) return
 
-    suspend fun processFrame(samples: ShortArray) {
-        if (isNoisyEnvironment) {
-            _toneResults.emit(
-                ToneResult(
-                    classification = ToneClassification.UNCERTAIN,
-                    attackTimeMs = 0.0,
-                    sustainStability = 0.0,
-                    spectralCentroid = 0.0,
-                    confidence = 0.0
-                )
-            )
-            return
-        }
+        val rms = calculateRms(floatData)
+        if (rms < 0.01) return
 
-        val floatSamples = DoubleArray(samples.size) { samples[it].toDouble() / Short.MAX_VALUE }
-        val rms = calculateRms(floatSamples)
-        if (rms < 0.01) return // Too quiet
-
-        val attackTime = calculateAttackTime(floatSamples)
-        val sustainStability = calculateSustainStability(floatSamples)
-        val spectralCentroid = calculateSpectralCentroid(floatSamples)
+        val attackTime = detectAttackTime(floatData)
+        val sustainStability = calculateSustainStability(floatData)
+        val spectralCentroid = calculateSpectralCentroid(floatData)
 
         val classification = classify(attackTime, sustainStability, spectralCentroid)
-        val confidence = if (classification == ToneClassification.UNCERTAIN) 0.3 else 0.7
+        val confidence = if (noiseLevel == com.sarangi.core.model.NoiseLevel.MODERATE) 0.6 else 0.85
 
-        _toneResults.emit(
-            ToneResult(
-                classification = classification,
-                attackTimeMs = attackTime,
-                sustainStability = sustainStability,
-                spectralCentroid = spectralCentroid,
-                confidence = confidence
-            )
+        val result = ToneResult(
+            classification = classification,
+            attackTimeMs = attackTime,
+            sustainStability = sustainStability,
+            spectralCentroid = spectralCentroid,
+            confidence = confidence
         )
+        _toneResults.emit(result)
     }
 
-    private fun classify(
-        attackTimeMs: Double,
-        sustainStability: Double,
-        spectralCentroid: Double
-    ): ToneClassification {
-        // Very high spectral centroid suggests scratchy or whistle tone
-        if (spectralCentroid > 5000) return ToneClassification.WHISTLE_TONE
-        if (sustainStability < 0.3 && spectralCentroid > 3000) return ToneClassification.SCRATCHY
-        if (sustainStability < 0.5 && spectralCentroid > 2000) return ToneClassification.SLIGHTLY_SCRATCHY
-        if (sustainStability > 0.6 && spectralCentroid < 3000) return ToneClassification.CLEAN
-        return ToneClassification.UNCERTAIN
-    }
-
-    private fun calculateAttackTime(samples: DoubleArray): Double {
-        val windowSize = (SAMPLE_RATE * 0.01).toInt() // 10ms windows
-        var maxRms = 0.0
-        var maxIndex = 0
-
-        var i = 0
-        while (i + windowSize < samples.size) {
-            val windowRms = calculateRms(samples.sliceArray(i until i + windowSize))
-            if (windowRms > maxRms) {
-                maxRms = windowRms
-                maxIndex = i
-            }
-            i += windowSize
+    internal fun classify(attackTimeMs: Double, sustainStability: Double, spectralCentroid: Double): ToneClassification {
+        return when {
+            spectralCentroid > 5000 -> ToneClassification.WHISTLE_TONE
+            sustainStability < 0.3 && spectralCentroid > 3000 -> ToneClassification.SCRATCHY
+            sustainStability < 0.5 && spectralCentroid > 2000 -> ToneClassification.SLIGHTLY_SCRATCHY
+            sustainStability > 0.7 && spectralCentroid < 3000 -> ToneClassification.CLEAN
+            else -> ToneClassification.UNCERTAIN
         }
-
-        return maxIndex.toDouble() / SAMPLE_RATE * 1000 // ms
     }
 
-    private fun calculateSustainStability(samples: DoubleArray): Double {
-        val windowSize = (SAMPLE_RATE * 0.05).toInt() // 50ms windows
-        val rmsValues = mutableListOf<Double>()
+    internal fun detectAttackTime(data: DoubleArray): Double {
+        val envelope = calculateEnvelope(data)
+        val maxAmplitude = envelope.maxOrNull() ?: return 0.0
+        val threshold = maxAmplitude * 0.9
+        val attackSample = envelope.indexOfFirst { it >= threshold }
+        return if (attackSample >= 0) {
+            (attackSample.toDouble() / 44100) * 1000 // ms
+        } else 0.0
+    }
 
-        // Skip attack (first 20%)
-        val start = samples.size / 5
-        var i = start
-        while (i + windowSize < samples.size) {
-            rmsValues.add(calculateRms(samples.sliceArray(i until i + windowSize)))
-            i += windowSize
-        }
+    internal fun calculateSustainStability(data: DoubleArray): Double {
+        val envelope = calculateEnvelope(data)
+        if (envelope.size < 10) return 0.0
 
-        if (rmsValues.size < 2) return 0.5
+        // Skip attack phase (first 10%)
+        val sustainStart = (envelope.size * 0.1).toInt()
+        val sustainPortion = envelope.sliceArray(sustainStart until envelope.size)
+        if (sustainPortion.isEmpty()) return 0.0
 
-        val mean = rmsValues.average()
+        val mean = sustainPortion.average()
         if (mean == 0.0) return 0.0
-        val variance = rmsValues.map { (it - mean) * (it - mean) }.average()
+        val variance = sustainPortion.map { (it - mean) * (it - mean) }.average()
         val cv = sqrt(variance) / mean
-
         return (1.0 - cv).coerceIn(0.0, 1.0)
     }
 
-    private fun calculateSpectralCentroid(samples: DoubleArray): Double {
-        val n = samples.size.coerceAtMost(2048)
+    internal fun calculateSpectralCentroid(data: DoubleArray): Double {
+        val n = data.size
+        val halfN = n / 2
         var weightedSum = 0.0
         var magnitudeSum = 0.0
 
-        for (k in 1 until n / 2) {
+        for (k in 0 until halfN.coerceAtMost(256)) {
             var real = 0.0
             var imag = 0.0
-            for (t in 0 until n) {
-                val angle = 2 * Math.PI * k * t / n
-                real += samples[t] * kotlin.math.cos(angle)
-                imag -= samples[t] * kotlin.math.sin(angle)
+            for (t in 0 until n.coerceAtMost(512)) {
+                val angle = 2.0 * Math.PI * k * t / n
+                real += data[t] * kotlin.math.cos(angle)
+                imag -= data[t] * kotlin.math.sin(angle)
             }
             val magnitude = sqrt(real * real + imag * imag)
-            val frequency = k.toDouble() * SAMPLE_RATE / n
-            weightedSum += frequency * magnitude
+            val freq = k.toDouble() * 44100 / n
+            weightedSum += freq * magnitude
             magnitudeSum += magnitude
         }
 
         return if (magnitudeSum > 0) weightedSum / magnitudeSum else 0.0
     }
 
-    private fun calculateRms(samples: DoubleArray): Double {
+    private fun calculateEnvelope(data: DoubleArray): DoubleArray {
+        val windowSize = 64
+        val envelope = DoubleArray(data.size / windowSize)
+        for (i in envelope.indices) {
+            val start = i * windowSize
+            val end = (start + windowSize).coerceAtMost(data.size)
+            var sum = 0.0
+            for (j in start until end) {
+                sum += data[j] * data[j]
+            }
+            envelope[i] = sqrt(sum / (end - start))
+        }
+        return envelope
+    }
+
+    private fun calculateRms(data: DoubleArray): Double {
         var sum = 0.0
-        for (s in samples) sum += s * s
-        return sqrt(sum / samples.size)
+        for (sample in data) sum += sample * sample
+        return sqrt(sum / data.size)
     }
 }

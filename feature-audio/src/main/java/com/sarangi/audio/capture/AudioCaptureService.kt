@@ -1,55 +1,70 @@
 package com.sarangi.audio.capture
 
 import android.Manifest
-import android.annotation.SuppressLint
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.Service
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
-import androidx.core.content.ContextCompat
-import android.content.Context
-import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.Dispatchers
+import android.os.IBinder
+import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationCompat
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.withContext
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class AudioCaptureService @Inject constructor(
-    @ApplicationContext private val context: Context
-) {
+class AudioCaptureService : Service() {
+
     companion object {
         const val SAMPLE_RATE = 44100
         const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
         const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
+        const val NOTIFICATION_CHANNEL_ID = "sarangi_audio"
+        const val NOTIFICATION_ID = 1001
+
+        private val _audioFrames = MutableSharedFlow<ShortArray>(extraBufferCapacity = 10)
+        val audioFrames: SharedFlow<ShortArray> = _audioFrames.asSharedFlow()
+
+        private val _isRecording = MutableSharedFlow<Boolean>(replay = 1)
+        val isRecording: SharedFlow<Boolean> = _isRecording.asSharedFlow()
     }
 
     private var audioRecord: AudioRecord? = null
-    private var isRecording = false
+    private var recordingJob: Job? = null
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    private val _audioFrames = MutableSharedFlow<ShortArray>(replay = 0, extraBufferCapacity = 10)
-    val audioFrames: SharedFlow<ShortArray> = _audioFrames.asSharedFlow()
+    override fun onCreate() {
+        super.onCreate()
+        createNotificationChannel()
+    }
 
-    val bufferSize: Int by lazy {
-        AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT).let { minSize ->
-            // Use at least 2048 samples for pitch detection
-            maxOf(minSize, 2048 * 2)
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        startForeground(NOTIFICATION_ID, createNotification())
+        startRecording()
+        return START_STICKY
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onDestroy() {
+        stopRecording()
+        scope.cancel()
+        super.onDestroy()
+    }
+
+    private fun startRecording() {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            stopSelf()
+            return
         }
-    }
 
-    fun hasPermission(): Boolean {
-        return ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
-            PackageManager.PERMISSION_GRANTED
-    }
-
-    @SuppressLint("MissingPermission")
-    suspend fun startRecording() = withContext(Dispatchers.IO) {
-        if (!hasPermission()) return@withContext
-        if (isRecording) return@withContext
+        val bufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
+            .coerceAtLeast(4096)
 
         audioRecord = AudioRecord(
             MediaRecorder.AudioSource.MIC,
@@ -60,29 +75,50 @@ class AudioCaptureService @Inject constructor(
         )
 
         if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-            audioRecord?.release()
-            audioRecord = null
-            return@withContext
+            stopSelf()
+            return
         }
 
         audioRecord?.startRecording()
-        isRecording = true
 
-        val buffer = ShortArray(2048)
-        while (isActive && isRecording) {
-            val read = audioRecord?.read(buffer, 0, buffer.size) ?: -1
-            if (read > 0) {
-                _audioFrames.emit(buffer.copyOf(read))
+        recordingJob = scope.launch {
+            _isRecording.emit(true)
+            val buffer = ShortArray(2048)
+            while (isActive) {
+                val readCount = audioRecord?.read(buffer, 0, buffer.size) ?: -1
+                if (readCount > 0) {
+                    _audioFrames.emit(buffer.copyOf(readCount))
+                }
             }
         }
     }
 
-    fun stopRecording() {
-        isRecording = false
-        try {
-            audioRecord?.stop()
-            audioRecord?.release()
-        } catch (_: Exception) { }
+    private fun stopRecording() {
+        recordingJob?.cancel()
+        scope.launch { _isRecording.emit(false) }
+        audioRecord?.stop()
+        audioRecord?.release()
         audioRecord = null
+    }
+
+    private fun createNotificationChannel() {
+        val channel = NotificationChannel(
+            NOTIFICATION_CHANNEL_ID,
+            "Sarangi Audio",
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = "Sarangi is listening during your practice session"
+        }
+        val notificationManager = getSystemService(NotificationManager::class.java)
+        notificationManager.createNotificationChannel(channel)
+    }
+
+    private fun createNotification(): Notification {
+        return NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
+            .setContentTitle("Sarangi")
+            .setContentText("Listening during practice...")
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
     }
 }

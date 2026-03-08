@@ -1,11 +1,11 @@
 package com.sarangi.app.di
 
+import com.sarangi.ai.client.ApiKeyProvider
 import com.sarangi.app.BuildConfig
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
-import javax.inject.Named
 import javax.inject.Singleton
 
 @Module
@@ -14,8 +14,9 @@ object AppModule {
 
     @Provides
     @Singleton
-    @Named("anthropic_api_key")
-    fun provideAnthropicApiKey(): String {
-        return BuildConfig.ANTHROPIC_API_KEY
+    fun provideApiKeyProvider(): ApiKeyProvider {
+        return object : ApiKeyProvider {
+            override fun getApiKey(): String = BuildConfig.ANTHROPIC_API_KEY
+        }
     }
 }

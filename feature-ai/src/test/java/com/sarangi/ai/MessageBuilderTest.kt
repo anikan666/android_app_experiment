@@ -1,8 +1,9 @@
 package com.sarangi.ai
 
 import com.sarangi.ai.client.Message
-import com.sarangi.ai.client.MessageBuilder
+import com.sarangi.ai.prompts.MessageBuilder
 import com.sarangi.ai.prompts.StudentContextBuilder
+import com.sarangi.ai.prompts.SystemPromptType
 import io.mockk.coEvery
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
@@ -22,41 +23,65 @@ class MessageBuilderTest {
     }
 
     @Test
-    fun `buildMessages adds new message to history`() {
+    fun `buildRequest includes user message`() = runBlocking {
+        val request = messageBuilder.buildRequest(
+            userMessage = "How do I tune?",
+            promptType = SystemPromptType.KnowledgeBrain
+        )
+
+        assertEquals(1, request.messages.size)
+        assertEquals("user", request.messages.last().role)
+        assertEquals("How do I tune?", request.messages.last().content)
+    }
+
+    @Test
+    fun `buildRequest includes conversation history`() = runBlocking {
         val history = listOf(
             Message("user", "Hello"),
             Message("assistant", "Hi there!")
         )
-        val result = messageBuilder.buildMessages(history, "How do I tune?")
-
-        assertEquals(3, result.size)
-        assertEquals("user", result.last().role)
-        assertEquals("How do I tune?", result.last().content)
-    }
-
-    @Test
-    fun `buildMessages trims history beyond 20 messages`() {
-        val history = (1..25).map { Message("user", "Message $it") }
-        val result = messageBuilder.buildMessages(history, "New message")
-
-        assertEquals(21, result.size) // 20 from history + 1 new
-    }
-
-    @Test
-    fun `buildMessages handles empty history`() {
-        val result = messageBuilder.buildMessages(emptyList(), "First message")
-
-        assertEquals(1, result.size)
-        assertEquals("First message", result.first().content)
-    }
-
-    @Test
-    fun `buildSystemPrompt includes student context`() = runBlocking {
-        val prompt = messageBuilder.buildSystemPrompt(
-            com.sarangi.ai.prompts.SystemPromptType.KnowledgeBrain
+        val request = messageBuilder.buildRequest(
+            userMessage = "How do I tune?",
+            promptType = SystemPromptType.KnowledgeBrain,
+            conversationHistory = history
         )
 
-        assertTrue(prompt.contains("Test student context"))
-        assertTrue(prompt.contains("musical knowledge resource"))
+        assertEquals(3, request.messages.size)
+    }
+
+    @Test
+    fun `buildRequest trims history beyond 20`() = runBlocking {
+        val history = (1..25).map { Message("user", "Message $it") }
+        val request = messageBuilder.buildRequest(
+            userMessage = "New message",
+            promptType = SystemPromptType.KnowledgeBrain,
+            conversationHistory = history
+        )
+
+        assertEquals(21, request.messages.size) // 20 from history + 1 new
+    }
+
+    @Test
+    fun `buildRequest includes student context in system prompt`() = runBlocking {
+        val request = messageBuilder.buildRequest(
+            userMessage = "test",
+            promptType = SystemPromptType.KnowledgeBrain
+        )
+
+        assertNotNull(request.system)
+        assertTrue(request.system!!.contains("Test student context"))
+        assertTrue(request.system!!.contains("musical knowledge resource"))
+    }
+
+    @Test
+    fun `buildRequest includes additional context when provided`() = runBlocking {
+        val request = messageBuilder.buildRequest(
+            userMessage = "test",
+            promptType = SystemPromptType.SessionArchitect,
+            additionalContext = "Energy level: 3/5"
+        )
+
+        assertNotNull(request.system)
+        assertTrue(request.system!!.contains("Energy level: 3/5"))
     }
 }

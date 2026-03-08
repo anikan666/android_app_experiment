@@ -26,11 +26,9 @@ data class SessionActivity(
     val plannedDurationMinutes: Int,
     val actualDurationMinutes: Int? = null,
     val completed: Boolean = false,
-    val skipped: Boolean = false,
     val pitchAccuracyScore: Float? = null,
     val rhythmAccuracyScore: Float? = null,
     val toneQualityScore: Float? = null,
     val tempoConsistencyScore: Float? = null,
-    val aiNotes: String? = null,
-    val rationale: String? = null
+    val aiNotes: String? = null
 )

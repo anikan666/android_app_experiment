@@ -4,11 +4,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
@@ -30,10 +31,12 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
             .padding(24.dp)
     ) {
         Text("Settings", style = MaterialTheme.typography.headlineMedium)
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
-        // Profile Section
-        SectionHeader("Profile")
+        // Profile section
+        Text("Profile", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.tertiary)
+        Spacer(modifier = Modifier.height(8.dp))
+
         state.profile?.let { profile ->
             OutlinedTextField(
                 value = profile.name,
@@ -57,45 +60,59 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
                     )
                 }
             }
-            Spacer(modifier = Modifier.height(12.dp))
 
-            Text("Experience level: ${profile.currentLevel}", style = MaterialTheme.typography.bodyMedium)
+            Spacer(modifier = Modifier.height(12.dp))
+            Text("Level", style = MaterialTheme.typography.bodyMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("beginner", "early-intermediate", "intermediate").forEach { level ->
+                    FilterChip(
+                        selected = profile.currentLevel == level,
+                        onClick = { viewModel.updateLevel(level) },
+                        label = { Text(level.replaceFirstChar { it.uppercase() }) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.2f)
+                        )
+                    )
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(24.dp))
+        HorizontalDivider()
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // Practice Section
-        SectionHeader("Practice")
+        // Practice section
+        Text("Practice", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.tertiary)
+        Spacer(modifier = Modifier.height(8.dp))
+
         state.profile?.let { profile ->
-            Text("Weekly goal: ${profile.weeklyPracticeGoalDays} days")
-            Slider(
-                value = profile.weeklyPracticeGoalDays.toFloat(),
-                onValueChange = { viewModel.updatePracticeGoal(it.toInt()) },
-                valueRange = 2f..7f,
-                steps = 4,
-                colors = SliderDefaults.colors(
-                    thumbColor = MaterialTheme.colorScheme.tertiary,
-                    activeTrackColor = MaterialTheme.colorScheme.tertiary
-                )
-            )
-
             Text("Default session duration: ${profile.sessionDurationMinutesPref} min")
             Slider(
                 value = profile.sessionDurationMinutesPref.toFloat(),
                 onValueChange = { viewModel.updateSessionDuration(it.toInt()) },
                 valueRange = 10f..60f,
                 steps = 9,
-                colors = SliderDefaults.colors(
-                    thumbColor = MaterialTheme.colorScheme.tertiary,
-                    activeTrackColor = MaterialTheme.colorScheme.tertiary
-                )
+                colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.tertiary, activeTrackColor = MaterialTheme.colorScheme.tertiary)
+            )
+
+            Text("Weekly goal: ${profile.weeklyPracticeGoalDays} days")
+            Slider(
+                value = profile.weeklyPracticeGoalDays.toFloat(),
+                onValueChange = { viewModel.updateWeeklyGoal(it.toInt()) },
+                valueRange = 1f..7f,
+                steps = 5,
+                colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.tertiary, activeTrackColor = MaterialTheme.colorScheme.tertiary)
             )
         }
 
         Spacer(modifier = Modifier.height(24.dp))
+        HorizontalDivider()
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // Notifications Section
-        SectionHeader("Notifications")
+        // Notifications section
+        Text("Notifications", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.tertiary)
+        Spacer(modifier = Modifier.height(8.dp))
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -103,56 +120,69 @@ fun SettingsScreen(viewModel: SettingsViewModel) {
         ) {
             Text("Practice nudges")
             Switch(
-                checked = state.nudgesEnabled,
-                onCheckedChange = { viewModel.updateNudgesEnabled(it) },
+                checked = state.notificationsEnabled,
+                onCheckedChange = { viewModel.toggleNotifications() },
                 colors = SwitchDefaults.colors(checkedTrackColor = MaterialTheme.colorScheme.tertiary)
             )
         }
 
         Spacer(modifier = Modifier.height(24.dp))
+        HorizontalDivider()
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // Data Section
-        SectionHeader("Data")
-        OutlinedButton(
-            onClick = { viewModel.clearAllData() },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Clear Conversation History")
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // About Section
-        SectionHeader("About")
-        Text("Sarangi v1.0", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-        Text("Your daily violin practice partner", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
-
-        Spacer(modifier = Modifier.height(32.dp))
+        // Save button
         Button(
-            onClick = { viewModel.saveSettings() },
+            onClick = { viewModel.saveProfile() },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(48.dp),
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary),
             shape = RoundedCornerShape(12.dp)
         ) {
-            Text("Save Changes")
+            Text(if (state.saved) "Saved" else "Save Changes")
         }
 
-        if (state.saved) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text("Settings saved.", color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodySmall)
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Danger zone
+        var showClearDialog by remember { mutableStateOf(false) }
+        OutlinedButton(
+            onClick = { showClearDialog = true },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Icon(Icons.Default.DeleteForever, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Clear All Data")
         }
+
+        if (showClearDialog) {
+            AlertDialog(
+                onDismissRequest = { showClearDialog = false },
+                title = { Text("Clear all data?") },
+                text = { Text("This will delete all your practice sessions, observations, and chat history. This cannot be undone.") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            viewModel.clearAllData()
+                            showClearDialog = false
+                        },
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) { Text("Clear") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showClearDialog = false }) { Text("Cancel") }
+                }
+            )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+        Text(
+            "Sarangi v1.0",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+            modifier = Modifier.fillMaxWidth()
+        )
     }
-}
-
-@Composable
-private fun SectionHeader(title: String) {
-    Text(
-        title,
-        style = MaterialTheme.typography.titleSmall,
-        fontWeight = FontWeight.SemiBold,
-        color = MaterialTheme.colorScheme.tertiary,
-        modifier = Modifier.padding(bottom = 8.dp)
-    )
 }

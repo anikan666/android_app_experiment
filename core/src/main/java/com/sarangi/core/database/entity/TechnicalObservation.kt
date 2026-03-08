@@ -26,5 +26,5 @@ data class TechnicalObservation(
     val severity: String = "info",
     val resolved: Boolean = false,
     val resolvedAt: Long? = null,
-    val source: String = "audio-analysis"
+    val source: String = "conversational-diagnostic"
 )

@@ -1,7 +1,6 @@
 package com.sarangi.app.ui.dashboard
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -17,6 +16,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import java.text.SimpleDateFormat
+import java.util.*
 
 @Composable
 fun DashboardScreen(
@@ -39,42 +40,34 @@ fun DashboardScreen(
             .padding(24.dp)
     ) {
         Text("Dashboard", style = MaterialTheme.typography.headlineMedium)
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(20.dp))
 
-        // This Week Overview
+        // Week overview
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Text("This Week", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text("This Week", style = MaterialTheme.typography.titleMedium)
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Streak visualization
+                // Streak dots
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
-                    val dayNames = listOf("S", "M", "T", "W", "T", "F", "S")
-                    state.weekDays.forEachIndexed { index, day ->
+                    val dayLabels = listOf("M", "T", "W", "T", "F", "S", "S")
+                    state.weekDays.forEachIndexed { index, completed ->
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(dayNames[index], style = MaterialTheme.typography.bodySmall)
+                            Text(dayLabels[index], style = MaterialTheme.typography.labelSmall)
                             Spacer(modifier = Modifier.height(4.dp))
                             Box(
                                 modifier = Modifier
-                                    .size(32.dp)
+                                    .size(24.dp)
                                     .clip(CircleShape)
                                     .background(
-                                        when {
-                                            day.practiced -> MaterialTheme.colorScheme.tertiary
-                                            day.isToday -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.3f)
-                                            else -> MaterialTheme.colorScheme.surfaceVariant
-                                        }
-                                    )
-                                    .then(
-                                        if (day.isToday && !day.practiced)
-                                            Modifier.border(2.dp, MaterialTheme.colorScheme.tertiary, CircleShape)
-                                        else Modifier
+                                        if (completed) MaterialTheme.colorScheme.tertiary
+                                        else MaterialTheme.colorScheme.surfaceVariant
                                     )
                             )
                         }
@@ -86,103 +79,40 @@ fun DashboardScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
-                    StatItem("${state.sessionsThisWeek}", "sessions")
+                    StatItem("${state.weeklySessionCount}", "sessions")
                     StatItem("${state.totalMinutesThisWeek}", "minutes")
-                    StatItem("${state.streakDays}", "day streak")
+                    StatItem("${state.currentStreak}", "day streak")
                 }
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Recent Sessions
+        // Recent sessions
         if (state.recentSessions.isNotEmpty()) {
-            Text("Recent Sessions", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text("Recent Sessions", style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(8.dp))
             state.recentSessions.forEach { session ->
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            val date = java.text.SimpleDateFormat("MMM d, h:mm a", java.util.Locale.getDefault())
-                                .format(java.util.Date(session.startedAt))
-                            Text(date, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                            Text(
-                                "${session.actualDurationMinutes ?: session.plannedDurationMinutes} min",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                            )
-                        }
-                        session.completionRate?.let { rate ->
-                            LinearProgressIndicator(
-                                progress = { rate },
-                                modifier = Modifier
-                                    .width(60.dp)
-                                    .height(6.dp)
-                                    .clip(RoundedCornerShape(3.dp)),
-                                color = MaterialTheme.colorScheme.tertiary,
-                                trackColor = MaterialTheme.colorScheme.surfaceVariant
-                            )
-                        }
-                    }
-                }
+                SessionCard(session)
+                Spacer(modifier = Modifier.height(8.dp))
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Technical Observations
+        // Technical observations
         if (state.unresolvedObservations.isNotEmpty()) {
-            Text("Active Focus Areas", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text("Active Focus Areas", style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(8.dp))
             state.unresolvedObservations.forEach { obs ->
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.Top
-                    ) {
-                        val severityColor = when (obs.severity) {
-                            "significant" -> MaterialTheme.colorScheme.error
-                            "mild" -> MaterialTheme.colorScheme.tertiary
-                            else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
-                        }
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(severityColor)
-                                .offset(y = 6.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(obs.category.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.labelLarge)
-                            Text(obs.observation, style = MaterialTheme.typography.bodySmall)
-                        }
-                        IconButton(onClick = { viewModel.markObservationResolved(obs) }, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Default.Check, contentDescription = "Mark resolved", modifier = Modifier.size(16.dp))
-                        }
-                    }
-                }
+                ObservationCard(obs, onResolve = { viewModel.resolveObservation(obs) })
+                Spacer(modifier = Modifier.height(8.dp))
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Teacher Briefing
+        // Teacher briefing
         Card(
             modifier = Modifier.fillMaxWidth(),
             onClick = onNavigateToTeacherBriefing,
@@ -192,12 +122,11 @@ fun DashboardScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Default.School, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
-                Spacer(modifier = Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("For Your Next Lesson", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Column {
+                    Text("For Your Next Lesson", style = MaterialTheme.typography.titleSmall)
                     Text(
                         "${state.undiscussedBriefingCount} items to discuss",
                         style = MaterialTheme.typography.bodySmall,
@@ -213,7 +142,85 @@ fun DashboardScreen(
 @Composable
 private fun StatItem(value: String, label: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.tertiary)
-        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+        Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+    }
+}
+
+@Composable
+private fun SessionCard(session: com.sarangi.core.database.entity.PracticeSession) {
+    val dateFormat = remember { SimpleDateFormat("EEE, MMM d", Locale.getDefault()) }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(dateFormat.format(Date(session.startedAt)), style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "${session.actualDurationMinutes ?: session.plannedDurationMinutes} min",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            session.completionRate?.let { rate ->
+                Spacer(modifier = Modifier.height(8.dp))
+                LinearProgressIndicator(
+                    progress = { rate },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp)),
+                    color = MaterialTheme.colorScheme.tertiary,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            }
+            session.notes?.let { notes ->
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(notes, style = MaterialTheme.typography.bodySmall, maxLines = 2, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ObservationCard(
+    observation: com.sarangi.core.database.entity.TechnicalObservation,
+    onResolve: () -> Unit
+) {
+    val severityColor = when (observation.severity) {
+        "significant" -> MaterialTheme.colorScheme.error
+        "mild" -> MaterialTheme.colorScheme.tertiary
+        else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(severityColor)
+                    .offset(y = 6.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(observation.category.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.labelMedium)
+                Text(observation.observation, style = MaterialTheme.typography.bodySmall)
+            }
+            TextButton(onClick = onResolve) {
+                Text("Resolved", style = MaterialTheme.typography.labelSmall)
+            }
+        }
     }
 }

@@ -38,8 +38,8 @@ fun SessionScreen(
 }
 
 @Composable
-private fun CheckInPhase(state: SessionState, viewModel: SessionViewModel) {
-    val durationOptions = listOf(15, 20, 30, 45, 60)
+private fun CheckInPhase(state: SessionUiState, viewModel: SessionViewModel) {
+    val durations = listOf(15, 20, 30, 45, 60)
     val energyEmojis = listOf("1", "2", "3", "4", "5")
 
     Column(
@@ -49,12 +49,12 @@ private fun CheckInPhase(state: SessionState, viewModel: SessionViewModel) {
             .padding(24.dp)
     ) {
         Text("Ready to practise?", style = MaterialTheme.typography.headlineMedium)
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
         Text("How much time do you have?", style = MaterialTheme.typography.titleSmall)
         Spacer(modifier = Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            durationOptions.forEach { min ->
+            durations.forEach { min ->
                 FilterChip(
                     selected = state.availableMinutes == min,
                     onClick = { viewModel.updateAvailableMinutes(min) },
@@ -69,15 +69,12 @@ private fun CheckInPhase(state: SessionState, viewModel: SessionViewModel) {
         Spacer(modifier = Modifier.height(24.dp))
         Text("Energy level?", style = MaterialTheme.typography.titleSmall)
         Spacer(modifier = Modifier.height(8.dp))
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            (1..5).forEach { level ->
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            energyEmojis.forEachIndexed { index, label ->
                 FilterChip(
-                    selected = state.energyLevel == level,
-                    onClick = { viewModel.updateEnergyLevel(level) },
-                    label = { Text("$level") },
+                    selected = state.energyLevel == index + 1,
+                    onClick = { viewModel.updateEnergyLevel(index + 1) },
+                    label = { Text(label) },
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.2f)
                     )
@@ -87,8 +84,8 @@ private fun CheckInPhase(state: SessionState, viewModel: SessionViewModel) {
 
         Spacer(modifier = Modifier.height(24.dp))
         OutlinedTextField(
-            value = state.specificFocus,
-            onValueChange = { viewModel.updateSpecificFocus(it) },
+            value = state.focusRequest,
+            onValueChange = { viewModel.updateFocusRequest(it) },
             label = { Text("Anything specific you want to work on?") },
             modifier = Modifier.fillMaxWidth(),
             placeholder = { Text("Optional") },
@@ -103,11 +100,11 @@ private fun CheckInPhase(state: SessionState, viewModel: SessionViewModel) {
                 .height(56.dp),
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary),
             shape = RoundedCornerShape(16.dp),
-            enabled = !state.isGeneratingPlan
+            enabled = !state.isGenerating
         ) {
-            if (state.isGeneratingPlan) {
+            if (state.isGenerating) {
                 CircularProgressIndicator(modifier = Modifier.size(24.dp), color = MaterialTheme.colorScheme.onTertiary)
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(12.dp))
                 Text("Designing your session...")
             } else {
                 Text("Generate My Session", style = MaterialTheme.typography.titleMedium)
@@ -122,11 +119,7 @@ private fun CheckInPhase(state: SessionState, viewModel: SessionViewModel) {
 }
 
 @Composable
-private fun PlanReviewPhase(
-    state: SessionState,
-    viewModel: SessionViewModel,
-    onNavigateToChat: () -> Unit
-) {
+private fun PlanReviewPhase(state: SessionUiState, viewModel: SessionViewModel, onNavigateToChat: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -134,27 +127,15 @@ private fun PlanReviewPhase(
             .padding(24.dp)
     ) {
         Text("Your Session Plan", style = MaterialTheme.typography.headlineMedium)
-        Text(
-            "${state.availableMinutes} minutes",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
-        )
+        Text("${state.availableMinutes} minutes", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
         Spacer(modifier = Modifier.height(16.dp))
 
         state.activities.forEachIndexed { index, activity ->
-            ActivityCard(index, activity)
-            if (index < state.activities.size - 1) {
-                Box(
-                    modifier = Modifier
-                        .padding(start = 20.dp)
-                        .height(16.dp)
-                        .width(2.dp)
-                        .then(Modifier)
-                )
-            }
+            ActivityCard(index + 1, activity)
+            Spacer(modifier = Modifier.height(8.dp))
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -179,16 +160,15 @@ private fun PlanReviewPhase(
 }
 
 @Composable
-private fun ActivityCard(index: Int, activity: PlannedActivity) {
+private fun ActivityCard(number: Int, activity: ActivityPlan) {
     var expanded by remember { mutableStateOf(false) }
-
     val icon = when (activity.activityType) {
-        "warmup" -> Icons.Default.FitnessCenter
-        "scale" -> Icons.Default.Straighten
-        "exercise" -> Icons.Default.Build
+        "warmup" -> Icons.Default.Whatshot
+        "scale" -> Icons.Default.LinearScale
+        "exercise" -> Icons.Default.FitnessCenter
         "repertoire" -> Icons.Default.LibraryMusic
-        "sight-reading" -> Icons.Default.Visibility
-        "cooldown" -> Icons.Default.SelfImprovement
+        "sight-reading" -> Icons.Default.MenuBook
+        "cooldown" -> Icons.Default.Spa
         else -> Icons.Default.MusicNote
     }
 
@@ -205,25 +185,16 @@ private fun ActivityCard(index: Int, activity: PlannedActivity) {
                     Text(
                         activity.activityType.replaceFirstChar { it.uppercase() },
                         style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.Medium
                     )
-                    Text(
-                        activity.description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                        maxLines = if (expanded) Int.MAX_VALUE else 2
-                    )
+                    Text(activity.description, style = MaterialTheme.typography.bodySmall, maxLines = if (expanded) Int.MAX_VALUE else 2)
                 }
-                Text(
-                    "${activity.plannedDurationMinutes}m",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.tertiary
-                )
+                Text("${activity.plannedDurationMinutes}m", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
             }
             if (expanded && activity.rationale.isNotBlank()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    "Why: ${activity.rationale}",
+                    activity.rationale,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                 )
@@ -233,10 +204,12 @@ private fun ActivityCard(index: Int, activity: PlannedActivity) {
 }
 
 @Composable
-private fun ActivePhase(state: SessionState, viewModel: SessionViewModel) {
+private fun ActivePhase(state: SessionUiState, viewModel: SessionViewModel) {
     val currentActivity = state.activities.getOrNull(state.currentActivityIndex)
-    val activityDurationSec = (currentActivity?.plannedDurationMinutes ?: 0) * 60L
-    val remainingSec = (activityDurationSec - state.activityElapsedSeconds).coerceAtLeast(0)
+    val totalMinutes = state.elapsedSeconds / 60
+    val totalSeconds = state.elapsedSeconds % 60
+    val activityMinutes = state.activityElapsedSeconds / 60
+    val activitySeconds = state.activityElapsedSeconds % 60
 
     Column(
         modifier = Modifier
@@ -249,47 +222,45 @@ private fun ActivePhase(state: SessionState, viewModel: SessionViewModel) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
-                Text(
-                    formatTime(state.elapsedSeconds),
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold
-                )
-                Text("Total", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f))
-            }
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    formatTime(remainingSec),
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = if (remainingSec < 30) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onBackground
-                )
-                Text("Remaining", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f))
-            }
+            Text(
+                String.format("%02d:%02d", totalMinutes, totalSeconds),
+                style = MaterialTheme.typography.headlineSmall
+            )
+            Text(
+                "${state.currentActivityIndex + 1}/${state.activities.size}",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+            )
         }
 
-        // Progress
+        Spacer(modifier = Modifier.height(8.dp))
         LinearProgressIndicator(
-            progress = { (state.currentActivityIndex.toFloat() + (state.activityElapsedSeconds.toFloat() / activityDurationSec.coerceAtLeast(1))) / state.activities.size.coerceAtLeast(1) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 16.dp),
+            progress = { if (state.activities.isNotEmpty()) (state.currentActivityIndex + 1).toFloat() / state.activities.size else 0f },
+            modifier = Modifier.fillMaxWidth(),
             color = MaterialTheme.colorScheme.tertiary
         )
 
+        Spacer(modifier = Modifier.height(24.dp))
+
         // Current activity
-        if (currentActivity != null) {
+        currentActivity?.let { activity ->
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
             ) {
                 Column(modifier = Modifier.padding(20.dp)) {
                     Text(
-                        "${state.currentActivityIndex + 1}/${state.activities.size}: ${currentActivity.activityType.replaceFirstChar { it.uppercase() }}",
+                        activity.activityType.replaceFirstChar { it.uppercase() },
                         style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
+                        color = MaterialTheme.colorScheme.tertiary
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        String.format("%02d:%02d", activityMinutes, activitySeconds),
+                        style = MaterialTheme.typography.headlineMedium
                     )
                     Spacer(modifier = Modifier.height(12.dp))
-                    Text(currentActivity.description, style = MaterialTheme.typography.bodyLarge)
+                    Text(activity.description, style = MaterialTheme.typography.bodyLarge)
                 }
             }
         }
@@ -297,17 +268,26 @@ private fun ActivePhase(state: SessionState, viewModel: SessionViewModel) {
         Spacer(modifier = Modifier.height(16.dp))
 
         // Audio feedback placeholders
-        Row(
+        Card(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(Icons.Default.Mic, contentDescription = "Listening", tint = MaterialTheme.colorScheme.tertiary)
-                Text("Pitch: ${state.pitchAccuracy}", style = MaterialTheme.typography.bodySmall)
-            }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(Icons.Default.Timer, contentDescription = "Rhythm", tint = MaterialTheme.colorScheme.tertiary)
-                Text("Rhythm: ${state.rhythmAccuracy}", style = MaterialTheme.typography.bodySmall)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.Mic, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
+                    Text("Pitch", style = MaterialTheme.typography.labelSmall)
+                    Text(state.pitchAccuracy, style = MaterialTheme.typography.titleMedium)
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.Timer, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
+                    Text("Rhythm", style = MaterialTheme.typography.labelSmall)
+                    Text(state.rhythmAccuracy, style = MaterialTheme.typography.titleMedium)
+                }
             }
         }
 
@@ -320,7 +300,8 @@ private fun ActivePhase(state: SessionState, viewModel: SessionViewModel) {
         ) {
             OutlinedButton(
                 onClick = { viewModel.skipActivity() },
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp)
             ) {
                 Text("Skip")
             }
@@ -329,17 +310,19 @@ private fun ActivePhase(state: SessionState, viewModel: SessionViewModel) {
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (state.isPaused) MaterialTheme.colorScheme.tertiary
-                    else MaterialTheme.colorScheme.secondary
-                )
+                    else MaterialTheme.colorScheme.surfaceVariant
+                ),
+                shape = RoundedCornerShape(12.dp)
             ) {
                 Text(if (state.isPaused) "Resume" else "Pause")
             }
             Button(
                 onClick = { viewModel.nextActivity() },
                 modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary),
+                shape = RoundedCornerShape(12.dp)
             ) {
-                Text("Next")
+                Text(if (state.currentActivityIndex >= state.activities.lastIndex) "Finish" else "Next")
             }
         }
 
@@ -348,14 +331,14 @@ private fun ActivePhase(state: SessionState, viewModel: SessionViewModel) {
             onClick = { viewModel.endSession() },
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("End Session")
+            Text("End Session Early")
         }
     }
 }
 
 @Composable
 private fun DebriefPhase(
-    state: SessionState,
+    state: SessionUiState,
     viewModel: SessionViewModel,
     onNavigateToDashboard: () -> Unit
 ) {
@@ -363,23 +346,24 @@ private fun DebriefPhase(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(24.dp)
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.tertiary)
+        Spacer(modifier = Modifier.height(16.dp))
         Text("Session Complete", style = MaterialTheme.typography.headlineMedium)
         Text(
             "${state.elapsedSeconds / 60} minutes",
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
         )
+
         Spacer(modifier = Modifier.height(24.dp))
 
-        if (state.isGeneratingDebrief) {
-            CircularProgressIndicator(
-                modifier = Modifier.align(Alignment.CenterHorizontally),
-                color = MaterialTheme.colorScheme.tertiary
-            )
+        if (state.isGenerating) {
+            CircularProgressIndicator(color = MaterialTheme.colorScheme.tertiary)
             Spacer(modifier = Modifier.height(8.dp))
-            Text("Preparing your summary...", textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+            Text("Generating summary...")
         } else {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -396,10 +380,7 @@ private fun DebriefPhase(
         Spacer(modifier = Modifier.height(24.dp))
         Text("How did that feel?", style = MaterialTheme.typography.titleSmall)
         Spacer(modifier = Modifier.height(8.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly
-        ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             (1..5).forEach { rating ->
                 FilterChip(
                     selected = state.sessionRating == rating,
@@ -415,7 +396,7 @@ private fun DebriefPhase(
         Spacer(modifier = Modifier.height(32.dp))
         Button(
             onClick = {
-                viewModel.resetSession()
+                viewModel.finishSession()
                 onNavigateToDashboard()
             },
             modifier = Modifier
@@ -427,10 +408,4 @@ private fun DebriefPhase(
             Text("Done", style = MaterialTheme.typography.titleMedium)
         }
     }
-}
-
-private fun formatTime(seconds: Long): String {
-    val m = seconds / 60
-    val s = seconds % 60
-    return "%d:%02d".format(m, s)
 }

@@ -6,10 +6,10 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface SessionActivityDao {
-    @Query("SELECT * FROM session_activity WHERE sessionId = :sessionId ORDER BY orderIndex")
+    @Query("SELECT * FROM session_activity WHERE sessionId = :sessionId ORDER BY orderIndex ASC")
     fun getActivitiesForSession(sessionId: Long): Flow<List<SessionActivity>>
 
-    @Query("SELECT * FROM session_activity WHERE sessionId = :sessionId ORDER BY orderIndex")
+    @Query("SELECT * FROM session_activity WHERE sessionId = :sessionId ORDER BY orderIndex ASC")
     suspend fun getActivitiesForSessionOnce(sessionId: Long): List<SessionActivity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

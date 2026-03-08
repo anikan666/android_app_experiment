@@ -11,37 +11,50 @@ class TeacherBriefingGenerator @Inject constructor(
 ) {
     suspend fun generateBriefingText(studentId: Long): String {
         val items = repository.getUndiscussedItemsOnce(studentId)
-        if (items.isEmpty()) return "No new items for your next lesson."
+        if (items.isEmpty()) return "No items to discuss at your next lesson."
 
         val grouped = items.groupBy { it.category }
 
         return buildString {
-            appendLine("=== Teacher Briefing ===")
+            appendLine("=== TEACHER BRIEFING ===")
             appendLine()
 
             grouped["technique-issue"]?.let { issues ->
-                appendLine("Technique Issues:")
-                issues.forEach { appendLine("  - ${it.description}") }
+                appendLine("TECHNIQUE ISSUES:")
+                issues.forEach { item ->
+                    appendLine("  - ${item.description}")
+                }
                 appendLine()
             }
 
             grouped["question"]?.let { questions ->
-                appendLine("Student Questions:")
-                questions.forEach { appendLine("  - ${it.description}") }
+                appendLine("QUESTIONS FOR TEACHER:")
+                questions.forEach { item ->
+                    appendLine("  - ${item.description}")
+                }
                 appendLine()
             }
 
             grouped["progress-note"]?.let { notes ->
-                appendLine("Progress Notes:")
-                notes.forEach { appendLine("  - ${it.description}") }
+                appendLine("PROGRESS NOTES:")
+                notes.forEach { item ->
+                    appendLine("  - ${item.description}")
+                }
                 appendLine()
             }
 
-            val profile = repository.getActiveProfileOnce()
-            if (profile != null) {
-                val recentSessions = repository.getRecentSessionsOnce(profile.id, 5)
+            val recentSessions = repository.getRecentSessionsOnce(studentId, 5)
+            if (recentSessions.isNotEmpty()) {
+                appendLine("RECENT PRACTICE SUMMARY:")
+                appendLine("  Sessions this period: ${recentSessions.size}")
                 val avgDuration = recentSessions.mapNotNull { it.actualDurationMinutes }.average()
-                appendLine("Recent Practice: ${recentSessions.size} sessions, avg ${avgDuration.toInt()} min")
+                if (!avgDuration.isNaN()) {
+                    appendLine("  Average session duration: ${avgDuration.toInt()} minutes")
+                }
+                val avgCompletion = recentSessions.mapNotNull { it.completionRate }.average()
+                if (!avgCompletion.isNaN()) {
+                    appendLine("  Average completion rate: ${(avgCompletion * 100).toInt()}%")
+                }
             }
         }
     }

@@ -20,7 +20,7 @@ import androidx.room.PrimaryKey
 data class PracticeSession(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val studentId: Long,
-    val startedAt: Long,
+    val startedAt: Long = System.currentTimeMillis(),
     val endedAt: Long? = null,
     val plannedDurationMinutes: Int,
     val actualDurationMinutes: Int? = null,
@@ -28,6 +28,5 @@ data class PracticeSession(
     val mood: String? = null,
     val sessionPlanJson: String = "{}",
     val completionRate: Float? = null,
-    val notes: String? = null,
-    val userRating: Int? = null
+    val notes: String? = null
 )

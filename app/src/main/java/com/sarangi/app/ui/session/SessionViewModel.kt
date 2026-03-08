@@ -2,9 +2,8 @@ package com.sarangi.app.ui.session
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.sarangi.ai.client.ApiResult
-import com.sarangi.ai.client.ConversationManager
 import com.sarangi.ai.prompts.SystemPromptType
+import com.sarangi.ai.session.ConversationManager
 import com.sarangi.core.database.SarangiRepository
 import com.sarangi.core.database.entity.PracticeSession
 import com.sarangi.core.database.entity.SessionActivity
@@ -17,7 +16,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.*
+import kotlinx.serialization.json.Json
 import javax.inject.Inject
 
 enum class SessionPhase {
@@ -25,28 +24,27 @@ enum class SessionPhase {
 }
 
 @Serializable
-data class PlannedActivity(
-    val activityType: String = "exercise",
+data class ActivityPlan(
+    val activityType: String = "",
     val description: String = "",
     val plannedDurationMinutes: Int = 5,
     val rationale: String = ""
 )
 
-data class SessionState(
+data class SessionUiState(
     val phase: SessionPhase = SessionPhase.CHECK_IN,
     val availableMinutes: Int = 30,
     val energyLevel: Int = 3,
-    val specificFocus: String = "",
-    val isGeneratingPlan: Boolean = false,
-    val activities: List<PlannedActivity> = emptyList(),
+    val focusRequest: String = "",
+    val isGenerating: Boolean = false,
+    val activities: List<ActivityPlan> = emptyList(),
     val currentActivityIndex: Int = 0,
     val elapsedSeconds: Long = 0,
     val activityElapsedSeconds: Long = 0,
     val isPaused: Boolean = false,
-    val sessionId: Long? = null,
+    val sessionId: Long = 0,
     val debriefSummary: String = "",
-    val isGeneratingDebrief: Boolean = false,
-    val sessionRating: Int? = null,
+    val sessionRating: Int = 0,
     val error: String? = null,
     val pitchAccuracy: String = "--%",
     val rhythmAccuracy: String = "--%"
@@ -54,12 +52,12 @@ data class SessionState(
 
 @HiltViewModel
 class SessionViewModel @Inject constructor(
-    private val repository: SarangiRepository,
-    private val conversationManager: ConversationManager
+    private val conversationManager: ConversationManager,
+    private val repository: SarangiRepository
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(SessionState())
-    val state: StateFlow<SessionState> = _state.asStateFlow()
+    private val _state = MutableStateFlow(SessionUiState())
+    val state: StateFlow<SessionUiState> = _state.asStateFlow()
 
     private var timerJob: Job? = null
     private var studentId: Long = 0
@@ -68,14 +66,15 @@ class SessionViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             val profile = repository.getActiveProfileOnce()
-            if (profile != null) {
-                studentId = profile.id
-                _state.update { it.copy(availableMinutes = profile.sessionDurationMinutesPref) }
-                // Check for active session to resume
+            studentId = profile?.id ?: 0
+            profile?.let {
+                _state.update { s -> s.copy(availableMinutes = it.sessionDurationMinutesPref) }
+            }
+            // Check for active session to resume
+            if (studentId > 0) {
                 val activeSession = repository.getActiveSession(studentId)
                 if (activeSession != null) {
-                    _state.update { it.copy(sessionId = activeSession.id, phase = SessionPhase.ACTIVE) }
-                    loadActivities(activeSession.id)
+                    resumeSession(activeSession)
                 }
             }
         }
@@ -83,59 +82,79 @@ class SessionViewModel @Inject constructor(
 
     fun updateAvailableMinutes(minutes: Int) { _state.update { it.copy(availableMinutes = minutes) } }
     fun updateEnergyLevel(level: Int) { _state.update { it.copy(energyLevel = level) } }
-    fun updateSpecificFocus(focus: String) { _state.update { it.copy(specificFocus = focus) } }
+    fun updateFocusRequest(text: String) { _state.update { it.copy(focusRequest = text) } }
 
     fun generatePlan() {
-        _state.update { it.copy(isGeneratingPlan = true, error = null) }
+        _state.update { it.copy(isGenerating = true, error = null) }
         viewModelScope.launch {
             try {
-                val s = _state.value
                 val prompt = buildString {
-                    appendLine("Design a ${s.availableMinutes}-minute practice session.")
-                    appendLine("Energy level: ${s.energyLevel}/5")
-                    if (s.specificFocus.isNotBlank()) appendLine("Specific focus: ${s.specificFocus}")
-                    appendLine("Return ONLY a JSON array of activities.")
+                    appendLine("Generate a practice session plan.")
+                    appendLine("Available time: ${_state.value.availableMinutes} minutes")
+                    appendLine("Energy level: ${_state.value.energyLevel}/5")
+                    if (_state.value.focusRequest.isNotBlank()) {
+                        appendLine("Student wants to focus on: ${_state.value.focusRequest}")
+                    }
                 }
 
-                val result = conversationManager.sendNonStreaming(
-                    userMessage = prompt,
+                val response = conversationManager.sendNonStreaming(
+                    message = prompt,
                     promptType = SystemPromptType.SessionArchitect,
                     studentId = studentId
                 )
 
-                when (result) {
-                    is ApiResult.Success -> {
-                        val activities = parseActivities(result.data)
-                        _state.update {
-                            it.copy(
-                                activities = activities,
-                                isGeneratingPlan = false,
-                                phase = SessionPhase.PLAN_REVIEW
-                            )
-                        }
-                    }
-                    is ApiResult.Error -> {
-                        // Fallback to a default plan
-                        val defaults = generateDefaultPlan(s.availableMinutes, s.energyLevel)
-                        _state.update {
-                            it.copy(
-                                activities = defaults,
-                                isGeneratingPlan = false,
-                                phase = SessionPhase.PLAN_REVIEW,
-                                error = "Used offline plan template. ${result.message}"
-                            )
-                        }
-                    }
-                    is ApiResult.Loading -> {}
+                val activities = try {
+                    json.decodeFromString<List<ActivityPlan>>(response.trim())
+                } catch (_: Exception) {
+                    // Fallback plan
+                    generateFallbackPlan()
                 }
-            } catch (e: Exception) {
-                val defaults = generateDefaultPlan(_state.value.availableMinutes, _state.value.energyLevel)
+
+                // Save session to DB
+                val session = PracticeSession(
+                    studentId = studentId,
+                    plannedDurationMinutes = _state.value.availableMinutes,
+                    energyLevel = _state.value.energyLevel,
+                    sessionPlanJson = response
+                )
+                val sessionId = repository.insertSession(session)
+
+                activities.forEachIndexed { index, plan ->
+                    repository.insertActivity(
+                        SessionActivity(
+                            sessionId = sessionId,
+                            orderIndex = index,
+                            activityType = plan.activityType,
+                            description = plan.description,
+                            plannedDurationMinutes = plan.plannedDurationMinutes
+                        )
+                    )
+                }
+
                 _state.update {
                     it.copy(
-                        activities = defaults,
-                        isGeneratingPlan = false,
+                        isGenerating = false,
+                        activities = activities,
+                        sessionId = sessionId,
+                        phase = SessionPhase.PLAN_REVIEW
+                    )
+                }
+            } catch (e: Exception) {
+                val fallback = generateFallbackPlan()
+                val session = PracticeSession(
+                    studentId = studentId,
+                    plannedDurationMinutes = _state.value.availableMinutes,
+                    energyLevel = _state.value.energyLevel,
+                    sessionPlanJson = "offline-fallback"
+                )
+                val sessionId = repository.insertSession(session)
+                _state.update {
+                    it.copy(
+                        isGenerating = false,
+                        activities = fallback,
+                        sessionId = sessionId,
                         phase = SessionPhase.PLAN_REVIEW,
-                        error = "Used offline plan template."
+                        error = "Generated offline plan — connect for AI-tailored sessions."
                     )
                 }
             }
@@ -143,50 +162,93 @@ class SessionViewModel @Inject constructor(
     }
 
     fun startSession() {
-        viewModelScope.launch {
-            val s = _state.value
-            val session = PracticeSession(
-                studentId = studentId,
-                startedAt = System.currentTimeMillis(),
-                plannedDurationMinutes = s.availableMinutes,
-                energyLevel = s.energyLevel,
-                sessionPlanJson = json.encodeToString(
-                    JsonArray.serializer(),
-                    JsonArray(s.activities.map { a ->
-                        buildJsonObject {
-                            put("activityType", a.activityType)
-                            put("description", a.description)
-                            put("plannedDurationMinutes", a.plannedDurationMinutes)
-                        }
-                    })
-                )
-            )
-            val sessionId = repository.insertSession(session)
+        _state.update { it.copy(phase = SessionPhase.ACTIVE) }
+        startTimer()
+    }
 
-            s.activities.forEachIndexed { index, activity ->
-                repository.insertActivity(
-                    SessionActivity(
-                        sessionId = sessionId,
-                        orderIndex = index,
-                        activityType = activity.activityType,
-                        description = activity.description,
-                        plannedDurationMinutes = activity.plannedDurationMinutes,
-                        rationale = activity.rationale
+    fun togglePause() {
+        val paused = !_state.value.isPaused
+        _state.update { it.copy(isPaused = paused) }
+        if (paused) timerJob?.cancel() else startTimer()
+    }
+
+    fun nextActivity() {
+        val current = _state.value.currentActivityIndex
+        if (current < _state.value.activities.lastIndex) {
+            viewModelScope.launch {
+                // Mark current activity as completed
+                markActivityCompleted(current)
+                _state.update {
+                    it.copy(
+                        currentActivityIndex = current + 1,
+                        activityElapsedSeconds = 0
+                    )
+                }
+            }
+        } else {
+            endSession()
+        }
+    }
+
+    fun skipActivity() {
+        nextActivity()
+    }
+
+    fun endSession() {
+        timerJob?.cancel()
+        _state.update { it.copy(phase = SessionPhase.DEBRIEF, isGenerating = true) }
+        viewModelScope.launch {
+            // Mark current activity completed
+            markActivityCompleted(_state.value.currentActivityIndex)
+
+            // Update session end time
+            val session = repository.getSessionById(_state.value.sessionId)
+            session?.let {
+                val completedCount = (_state.value.currentActivityIndex + 1).coerceAtMost(_state.value.activities.size)
+                val completionRate = if (_state.value.activities.isNotEmpty())
+                    completedCount.toFloat() / _state.value.activities.size else 0f
+                repository.updateSession(
+                    it.copy(
+                        endedAt = System.currentTimeMillis(),
+                        actualDurationMinutes = (_state.value.elapsedSeconds / 60).toInt(),
+                        completionRate = completionRate
                     )
                 )
             }
 
-            _state.update {
-                it.copy(
-                    sessionId = sessionId,
-                    phase = SessionPhase.ACTIVE,
-                    currentActivityIndex = 0,
-                    elapsedSeconds = 0,
-                    activityElapsedSeconds = 0
+            // Generate debrief
+            try {
+                val summary = conversationManager.sendNonStreaming(
+                    message = "Session completed. Duration: ${_state.value.elapsedSeconds / 60} minutes. Activities completed: ${_state.value.currentActivityIndex + 1}/${_state.value.activities.size}.",
+                    promptType = SystemPromptType.PostSessionSummary,
+                    studentId = studentId,
+                    sessionId = _state.value.sessionId
                 )
+                _state.update { it.copy(debriefSummary = summary, isGenerating = false) }
+            } catch (_: Exception) {
+                _state.update {
+                    it.copy(
+                        debriefSummary = "Great work today! You practised for ${_state.value.elapsedSeconds / 60} minutes.",
+                        isGenerating = false
+                    )
+                }
             }
-            startTimer()
         }
+    }
+
+    fun rateSession(rating: Int) {
+        _state.update { it.copy(sessionRating = rating) }
+    }
+
+    fun finishSession() {
+        viewModelScope.launch {
+            val session = repository.getSessionById(_state.value.sessionId)
+            session?.let {
+                repository.updateSession(it.copy(notes = _state.value.debriefSummary))
+            }
+        }
+        // Reset state
+        _state.update { SessionUiState() }
     }
 
     private fun startTimer() {
@@ -201,172 +263,61 @@ class SessionViewModel @Inject constructor(
                             activityElapsedSeconds = it.activityElapsedSeconds + 1
                         )
                     }
-                    // Check if current activity time is up
-                    val s = _state.value
-                    val currentActivity = s.activities.getOrNull(s.currentActivityIndex)
-                    if (currentActivity != null) {
-                        val activityDurationSec = currentActivity.plannedDurationMinutes * 60L
-                        if (s.activityElapsedSeconds >= activityDurationSec) {
-                            nextActivity()
-                        }
-                    }
                 }
             }
         }
     }
 
-    fun togglePause() {
-        _state.update { it.copy(isPaused = !it.isPaused) }
-    }
-
-    fun nextActivity() {
-        val s = _state.value
-        if (s.currentActivityIndex < s.activities.size - 1) {
-            _state.update {
-                it.copy(
-                    currentActivityIndex = it.currentActivityIndex + 1,
-                    activityElapsedSeconds = 0
-                )
-            }
-        } else {
-            endSession()
-        }
-    }
-
-    fun skipActivity() {
-        viewModelScope.launch {
-            val s = _state.value
-            val sessionId = s.sessionId ?: return@launch
-            val activities = repository.getActivitiesForSessionOnce(sessionId)
-            val current = activities.getOrNull(s.currentActivityIndex)
-            if (current != null) {
-                repository.updateActivity(current.copy(skipped = true))
-            }
-            nextActivity()
-        }
-    }
-
-    fun endSession() {
-        timerJob?.cancel()
-        _state.update { it.copy(phase = SessionPhase.DEBRIEF, isGeneratingDebrief = true) }
-
-        viewModelScope.launch {
-            val s = _state.value
-            val sessionId = s.sessionId ?: return@launch
-
-            // Update session
-            val completedCount = s.currentActivityIndex + 1
-            val totalCount = s.activities.size
-            val completionRate = completedCount.toFloat() / totalCount.coerceAtLeast(1)
-
-            repository.updateSession(
-                PracticeSession(
-                    id = sessionId,
-                    studentId = studentId,
-                    startedAt = System.currentTimeMillis() - s.elapsedSeconds * 1000,
-                    endedAt = System.currentTimeMillis(),
-                    plannedDurationMinutes = s.availableMinutes,
-                    actualDurationMinutes = (s.elapsedSeconds / 60).toInt(),
-                    energyLevel = s.energyLevel,
-                    completionRate = completionRate,
-                    sessionPlanJson = "{}"
+    private suspend fun markActivityCompleted(index: Int) {
+        if (index < 0 || index >= _state.value.activities.size) return
+        val activities = repository.getActivitiesForSessionOnce(_state.value.sessionId)
+        activities.getOrNull(index)?.let { activity ->
+            repository.updateActivity(
+                activity.copy(
+                    completed = true,
+                    actualDurationMinutes = (_state.value.activityElapsedSeconds / 60).toInt().coerceAtLeast(1)
                 )
             )
-
-            // Generate debrief
-            try {
-                val debriefPrompt = "Session completed. Duration: ${s.elapsedSeconds / 60} minutes. " +
-                    "Completed ${completedCount} of ${totalCount} activities. " +
-                    "Activities: ${s.activities.joinToString(", ") { it.description }}"
-
-                val result = conversationManager.sendNonStreaming(
-                    userMessage = debriefPrompt,
-                    promptType = SystemPromptType.PostSessionSummary,
-                    studentId = studentId,
-                    sessionId = sessionId
-                )
-
-                val summary = when (result) {
-                    is ApiResult.Success -> result.data
-                    is ApiResult.Error -> "Session complete. You practised for ${s.elapsedSeconds / 60} minutes and completed $completedCount of $totalCount activities."
-                    is ApiResult.Loading -> ""
-                }
-
-                _state.update { it.copy(debriefSummary = summary, isGeneratingDebrief = false) }
-            } catch (e: Exception) {
-                _state.update {
-                    it.copy(
-                        debriefSummary = "Session complete. You practised for ${s.elapsedSeconds / 60} minutes.",
-                        isGeneratingDebrief = false
-                    )
-                }
-            }
         }
     }
 
-    fun rateSession(rating: Int) {
-        _state.update { it.copy(sessionRating = rating) }
+    private fun resumeSession(session: PracticeSession) {
         viewModelScope.launch {
-            val sessionId = _state.value.sessionId ?: return@launch
-            val session = repository.getSessionById(sessionId) ?: return@launch
-            repository.updateSession(session.copy(userRating = rating))
-        }
-    }
-
-    fun resetSession() {
-        timerJob?.cancel()
-        _state.update { SessionState(availableMinutes = it.availableMinutes) }
-    }
-
-    private fun parseActivities(jsonString: String): List<PlannedActivity> {
-        return try {
-            val cleaned = jsonString.trim()
-                .removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
-            val array = json.parseToJsonElement(cleaned).jsonArray
-            array.map { element ->
-                val obj = element.jsonObject
-                PlannedActivity(
-                    activityType = obj["activityType"]?.jsonPrimitive?.content ?: "exercise",
-                    description = obj["description"]?.jsonPrimitive?.content ?: "",
-                    plannedDurationMinutes = obj["plannedDurationMinutes"]?.jsonPrimitive?.int ?: 5,
-                    rationale = obj["rationale"]?.jsonPrimitive?.content ?: ""
+            val activities = repository.getActivitiesForSessionOnce(session.id)
+            val plans = activities.map {
+                ActivityPlan(
+                    activityType = it.activityType,
+                    description = it.description,
+                    plannedDurationMinutes = it.plannedDurationMinutes
                 )
             }
-        } catch (e: Exception) {
-            generateDefaultPlan(_state.value.availableMinutes, _state.value.energyLevel)
-        }
-    }
-
-    private fun generateDefaultPlan(totalMinutes: Int, energyLevel: Int): List<PlannedActivity> {
-        val warmupMin = (totalMinutes * 0.15).toInt().coerceAtLeast(3)
-        val cooldownMin = (totalMinutes * 0.10).toInt().coerceAtLeast(2)
-        val remainingMin = totalMinutes - warmupMin - cooldownMin
-        val scaleMin = (remainingMin * 0.3).toInt()
-        val exerciseMin = (remainingMin * 0.3).toInt()
-        val repertoireMin = remainingMin - scaleMin - exerciseMin
-
-        return listOf(
-            PlannedActivity("warmup", "Open strings and slow bowing. Focus on even tone and consistent bow speed.", warmupMin, "Warming up prepares your body and focuses your ear."),
-            PlannedActivity("scale", "G major scale, two octaves. Slow tempo, focusing on intonation.", scaleMin, "Scales build the foundation for everything else."),
-            PlannedActivity("exercise", "Shifting exercise: practice shifts between 1st and 3rd position.", exerciseMin, "Regular shifting practice builds confidence and accuracy."),
-            PlannedActivity("repertoire", "Work on your current piece. Start from the section you find most challenging.", repertoireMin, "Applying technique to real music is where it all comes together."),
-            PlannedActivity("cooldown", "Play something you enjoy. No pressure, just music.", cooldownMin, "Ending on a positive note keeps you motivated.")
-        )
-    }
-
-    private fun loadActivities(sessionId: Long) {
-        viewModelScope.launch {
-            val dbActivities = repository.getActivitiesForSessionOnce(sessionId)
-            val planned = dbActivities.map {
-                PlannedActivity(it.activityType, it.description, it.plannedDurationMinutes, it.rationale ?: "")
+            val completedCount = activities.count { it.completed }
+            _state.update {
+                it.copy(
+                    phase = SessionPhase.ACTIVE,
+                    activities = plans,
+                    sessionId = session.id,
+                    currentActivityIndex = completedCount.coerceAtMost(plans.lastIndex.coerceAtLeast(0)),
+                    availableMinutes = session.plannedDurationMinutes
+                )
             }
-            _state.update { it.copy(activities = planned) }
             startTimer()
         }
     }
 
+    private fun generateFallbackPlan(): List<ActivityPlan> {
+        val total = _state.value.availableMinutes
+        return listOf(
+            ActivityPlan("warmup", "Open string bowing: long, slow bows on each string. Focus on consistent contact point and even tone.", (total * 0.15).toInt().coerceAtLeast(2), "Warming up bow arm and establishing good tone production."),
+            ActivityPlan("scale", "G major scale, two octaves. Slow tempo, focus on intonation. Use tuner if available.", (total * 0.2).toInt().coerceAtLeast(3), "Building left hand accuracy and muscle memory."),
+            ActivityPlan("exercise", "Simple etude or shifting exercise appropriate to current level.", (total * 0.25).toInt().coerceAtLeast(4), "Technical development."),
+            ActivityPlan("repertoire", "Work on your current piece. Focus on one specific passage that needs attention.", (total * 0.3).toInt().coerceAtLeast(5), "Applying technique to musical context."),
+            ActivityPlan("cooldown", "Play something you enjoy and know well. Focus on musical expression.", (total * 0.1).toInt().coerceAtLeast(2), "Ending on a positive note.")
+        )
+    }
+
     override fun onCleared() {
-        super.onCleared()
         timerJob?.cancel()
+        super.onCleared()
     }
 }

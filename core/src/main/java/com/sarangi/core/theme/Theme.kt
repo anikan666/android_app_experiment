@@ -11,34 +11,32 @@ import androidx.core.view.WindowCompat
 
 private val LightColorScheme = lightColorScheme(
     primary = SarangiPrimary,
-    onPrimary = SarangiOnPrimary,
     secondary = SarangiSecondary,
-    onSecondary = SarangiOnSecondary,
-    tertiary = SarangiAccent,
-    onTertiary = SarangiOnAccent,
+    tertiary = SarangiTertiary,
     surface = SarangiSurface,
+    onPrimary = SarangiOnPrimary,
+    onSecondary = SarangiOnSecondary,
+    onTertiary = SarangiOnTertiary,
     onSurface = SarangiOnSurface,
     background = SarangiBackground,
     onBackground = SarangiOnBackground,
-    error = SarangiError,
-    surfaceVariant = SarangiSurface,
-    onSurfaceVariant = SarangiOnSurface
+    surfaceVariant = SarangiSurfaceVariant,
+    error = SarangiError
 )
 
 private val DarkColorScheme = darkColorScheme(
     primary = SarangiPrimaryDark,
-    onPrimary = SarangiOnPrimary,
     secondary = SarangiSecondaryDark,
-    onSecondary = SarangiOnSecondary,
-    tertiary = SarangiAccent,
-    onTertiary = SarangiOnAccent,
+    tertiary = SarangiTertiaryDark,
     surface = SarangiSurfaceDark,
+    onPrimary = SarangiOnPrimaryDark,
+    onSecondary = SarangiOnPrimaryDark,
+    onTertiary = SarangiOnTertiary,
     onSurface = SarangiOnSurfaceDark,
     background = SarangiBackgroundDark,
     onBackground = SarangiOnBackgroundDark,
-    error = SarangiError,
-    surfaceVariant = SarangiSurfaceDark,
-    onSurfaceVariant = SarangiOnSurfaceDark
+    surfaceVariant = SarangiSurfaceVariantDark,
+    error = SarangiError
 )
 
 @Composable
@@ -47,18 +45,19 @@ fun SarangiTheme(
     content: @Composable () -> Unit
 ) {
     val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
             window.statusBarColor = colorScheme.primary.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
+            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false
         }
     }
 
     MaterialTheme(
         colorScheme = colorScheme,
-        typography = SarangiTypography,
+        typography = Typography(),
         content = content
     )
 }

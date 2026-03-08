@@ -15,97 +15,98 @@ class RhythmAnalyser @Inject constructor() {
     companion object {
         private const val SAMPLE_RATE = 44100
         private const val HOP_SIZE = 512
+        private const val FFT_SIZE = 1024
         private const val ONSET_THRESHOLD = 1.5
     }
 
-    private val _rhythmResults = MutableSharedFlow<RhythmResult>(replay = 0, extraBufferCapacity = 5)
+    private val _rhythmResults = MutableSharedFlow<RhythmResult>(extraBufferCapacity = 10)
     val rhythmResults: Flow<RhythmResult> = _rhythmResults.asSharedFlow()
 
     private val onsetTimes = mutableListOf<Long>()
     private var previousSpectrum: DoubleArray? = null
-    private var sampleCount = 0L
+    private var frameCount = 0
 
     fun reset() {
         onsetTimes.clear()
         previousSpectrum = null
-        sampleCount = 0L
+        frameCount = 0
     }
 
-    suspend fun processFrame(samples: ShortArray) {
-        val floatSamples = DoubleArray(samples.size) { samples[it].toDouble() / Short.MAX_VALUE }
+    suspend fun processFrame(audioData: ShortArray) {
+        val floatData = audioData.map { it.toDouble() / Short.MAX_VALUE }.toDoubleArray()
 
-        // Compute magnitude spectrum using simple DFT on windows
-        val windowSize = HOP_SIZE.coerceAtMost(floatSamples.size)
+        // Process in windows
         var offset = 0
-        while (offset + windowSize <= floatSamples.size) {
-            val window = floatSamples.sliceArray(offset until offset + windowSize)
-            val spectrum = computeMagnitudeSpectrum(window)
+        while (offset + FFT_SIZE <= floatData.size) {
+            val window = floatData.sliceArray(offset until offset + FFT_SIZE)
+            val spectrum = computeSpectralMagnitude(window)
 
-            val prev = previousSpectrum
-            if (prev != null) {
-                // Spectral flux: sum of positive differences
-                var flux = 0.0
-                for (i in spectrum.indices) {
-                    val diff = spectrum[i] - prev[i]
-                    if (diff > 0) flux += diff
-                }
-
-                // Adaptive threshold
+            previousSpectrum?.let { prevSpec ->
+                val flux = computeSpectralFlux(prevSpec, spectrum)
                 if (flux > ONSET_THRESHOLD) {
-                    val timeMs = (sampleCount + offset) * 1000L / SAMPLE_RATE
-                    // Debounce: minimum 50ms between onsets
-                    if (onsetTimes.isEmpty() || timeMs - onsetTimes.last() > 50) {
-                        onsetTimes.add(timeMs)
-                    }
+                    val timeMs = (frameCount.toLong() * HOP_SIZE * 1000) / SAMPLE_RATE
+                    onsetTimes.add(timeMs)
                 }
             }
+
             previousSpectrum = spectrum
+            frameCount++
             offset += HOP_SIZE
         }
-        sampleCount += floatSamples.size
-
-        // Emit result when we have enough onsets
-        if (onsetTimes.size >= 4) {
-            emitResult()
-        }
     }
 
-    private suspend fun emitResult() {
-        if (onsetTimes.size < 2) return
+    suspend fun getResult(expectedIntervalMs: Double? = null): RhythmResult? {
+        if (onsetTimes.size < 2) return null
 
-        val iois = mutableListOf<Long>()
+        val iois = mutableListOf<Double>()
         for (i in 1 until onsetTimes.size) {
-            iois.add(onsetTimes[i] - onsetTimes[i - 1])
+            iois.add((onsetTimes[i] - onsetTimes[i - 1]).toDouble())
         }
 
-        val averageIoi = iois.average()
-        val deviations = iois.map { abs(it - averageIoi) }
-        val avgDeviation = deviations.average()
+        val deviations = if (expectedIntervalMs != null) {
+            iois.map { it - expectedIntervalMs }
+        } else {
+            val avgIoi = iois.average()
+            iois.map { it - avgIoi }
+        }
 
-        _rhythmResults.emit(
-            RhythmResult(
-                onsetTimesMs = onsetTimes.toList(),
-                deviationsMs = deviations,
-                averageDeviationMs = avgDeviation
-            )
+        val avgDeviation = deviations.map { abs(it) }.average()
+
+        val result = RhythmResult(
+            onsetTimesMs = onsetTimes.toList(),
+            deviationsMs = deviations,
+            averageDeviationMs = avgDeviation
         )
+        _rhythmResults.emit(result)
+        return result
     }
 
-    private fun computeMagnitudeSpectrum(samples: DoubleArray): DoubleArray {
-        val n = samples.size
-        val spectrum = DoubleArray(n / 2)
+    internal fun computeSpectralMagnitude(frame: DoubleArray): DoubleArray {
+        // Simple DFT magnitude (not FFT for simplicity — fine for onset detection)
+        val n = frame.size
+        val halfN = n / 2
+        val magnitude = DoubleArray(halfN)
 
-        // Simple DFT (not FFT for simplicity — fine for small windows)
-        for (k in 0 until n / 2) {
+        for (k in 0 until halfN) {
             var real = 0.0
             var imag = 0.0
-            for (t in samples.indices) {
-                val angle = 2 * Math.PI * k * t / n
-                real += samples[t] * kotlin.math.cos(angle)
-                imag -= samples[t] * kotlin.math.sin(angle)
+            for (t in 0 until n) {
+                val angle = 2.0 * Math.PI * k * t / n
+                real += frame[t] * kotlin.math.cos(angle)
+                imag -= frame[t] * kotlin.math.sin(angle)
             }
-            spectrum[k] = sqrt(real * real + imag * imag)
+            magnitude[k] = sqrt(real * real + imag * imag)
         }
-        return spectrum
+        return magnitude
+    }
+
+    internal fun computeSpectralFlux(previous: DoubleArray, current: DoubleArray): Double {
+        var flux = 0.0
+        val size = minOf(previous.size, current.size)
+        for (i in 0 until size) {
+            val diff = current[i] - previous[i]
+            if (diff > 0) flux += diff
+        }
+        return flux
     }
 }
