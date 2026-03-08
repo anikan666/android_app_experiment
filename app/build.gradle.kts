@@ -2,18 +2,19 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
 }
 
 android {
-    namespace = "com.dailyplanner"
-    compileSdk = 34
+    namespace = "com.sarangi.app"
+    compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.dailyplanner"
-        minSdk = 26
-        targetSdk = 34
+        applicationId = "com.sarangi.app"
+        minSdk = 33
+        targetSdk = 35
         versionCode = 1
         versionName = "1.0"
 
@@ -22,32 +23,13 @@ android {
             useSupportLibrary = true
         }
 
-        // Read API Key from local.properties
         val localProperties = java.util.Properties()
         val localPropertiesFile = rootProject.file("local.properties")
         if (localPropertiesFile.exists()) {
             localProperties.load(java.io.FileInputStream(localPropertiesFile))
         }
-        val apiKey = localProperties.getProperty("GEMINI_API_KEY") ?: ""
-        buildConfigField("String", "GEMINI_API_KEY", "\"$apiKey\"")
-
-        // Read Client ID from credentials.json
-        val credentialsFile = rootProject.file("credentials.json")
-        var clientId = ""
-        if (credentialsFile.exists()) {
-            try {
-                val jsonContent = credentialsFile.readText()
-                // Use a simple Regex to extract client_id to avoid adding org.json dependency to buildscript
-                val regex = "\"client_id\"\\s*:\\s*\"([^\"]+)\"".toRegex()
-                val matchResult = regex.find(jsonContent)
-                if (matchResult != null) {
-                    clientId = matchResult.groupValues[1]
-                }
-            } catch (e: Exception) {
-                println("Failed to parse credentials.json: ${e.message}")
-            }
-        }
-        buildConfigField("String", "GOOGLE_CLIENT_ID", "\"$clientId\"")
+        val apiKey = localProperties.getProperty("ANTHROPIC_API_KEY") ?: ""
+        buildConfigField("String", "ANTHROPIC_API_KEY", "\"$apiKey\"")
     }
 
     buildTypes {
@@ -66,14 +48,9 @@ android {
     kotlinOptions {
         jvmTarget = "1.8"
     }
-
-    // Add org.json dependency for buildscript to parse JSON? 
-    // Actually, Gradle Kotlin DSL typically has access to standard libs, but org.json might need import or simple regex.
-    // Let's use Regex to be safe and avoid classpath issues.
-
     buildFeatures {
         compose = true
-        buildConfig = true // Enable BuildConfig generation
+        buildConfig = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.8"
@@ -86,48 +63,37 @@ android {
 }
 
 dependencies {
+    implementation(project(":core"))
+    implementation(project(":feature-audio"))
+    implementation(project(":feature-ai"))
+    implementation(project(":feature-tracking"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    implementation(libs.androidx.material.icons.extended)
+    implementation(libs.androidx.navigation.compose)
 
     // Hilt
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
     implementation(libs.androidx.hilt.navigation.compose)
 
-    // Room
-    implementation(libs.androidx.room.runtime)
-    implementation(libs.androidx.room.ktx)
-    ksp(libs.androidx.room.compiler)
+    // DataStore
+    implementation(libs.androidx.datastore.preferences)
 
-    // Networking
-    implementation(libs.retrofit)
-    implementation(libs.retrofit.converter.gson)
-    implementation(libs.okhttp)
-    implementation(libs.okhttp.logging)
+    // WorkManager
+    implementation(libs.androidx.work.runtime.ktx)
 
-    // Google Auth & APIs
-    implementation(libs.play.services.auth)
-    implementation(libs.androidx.credentials)
-    implementation(libs.androidx.credentials.play.services)
-    implementation(libs.google.api.client.android) {
-        exclude(group = "org.apache.httpcomponents")
-    }
-    implementation(libs.google.api.services.gmail) {
-        exclude(group = "org.apache.httpcomponents")
-    }
-    implementation(libs.google.api.services.calendar) {
-        exclude(group = "org.apache.httpcomponents")
-    }
-
-    // AI
-    implementation(libs.google.ai.client.generativeai)
+    // Kotlinx Serialization
+    implementation(libs.kotlinx.serialization.json)
 
     testImplementation(libs.junit)
     testImplementation(libs.mockk)

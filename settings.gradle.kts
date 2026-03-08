@@ -19,5 +19,9 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Mobile App Daily Planner"
+rootProject.name = "Sarangi"
 include(":app")
+include(":core")
+include(":feature-audio")
+include(":feature-ai")
+include(":feature-tracking")
