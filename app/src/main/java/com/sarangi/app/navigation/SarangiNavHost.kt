@@ -28,6 +28,7 @@ import com.sarangi.app.ui.session.SessionScreen
 import com.sarangi.app.ui.session.SessionViewModel
 import com.sarangi.app.ui.settings.SettingsScreen
 import com.sarangi.app.ui.settings.SettingsViewModel
+import com.sarangi.app.ui.dashboard.TeacherBriefingScreen
 
 data class BottomNavItem(
     val screen: Screen,
@@ -130,11 +131,10 @@ fun SarangiNavHost() {
                 SettingsScreen(viewModel = viewModel)
             }
             composable(Screen.TeacherBriefing.route) {
-                // TeacherBriefingScreen handled inside Dashboard for now
                 val viewModel: DashboardViewModel = hiltViewModel()
-                DashboardScreen(
+                TeacherBriefingScreen(
                     viewModel = viewModel,
-                    onNavigateToTeacherBriefing = {}
+                    onNavigateBack = { navController.popBackStack() }
                 )
             }
         }

@@ -28,5 +28,10 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name="com.sarangi.audio.capture.AudioCaptureService"
+            android:foregroundServiceType="microphone"
+            android:exported="false" />
     </application>
 </manifest>
